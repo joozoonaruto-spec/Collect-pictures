@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Photo Share Wall - ส่งรูปขึ้นจอเรียลไทม์</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- QRCode Generator -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- Canvas Confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Kanit', sans-serif;
+            background-color: #f8fafc; /* Slate 50 - Very soft light gray background */
+            color: #1e293b; /* Slate 800 - Dark elegant text color */
+            overflow-x: hidden;
+        }
+        /* Custom smooth animations */
+        .polaroid-card {
+            transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            animation: popIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+        @keyframes popIn {
+            0% {
+                opacity: 0;
+                transform: scale(0.3) translateY(50px) rotate(-10deg);
+            }
+            100% {
+                opacity: 1;
+                transform: scale(1) translateY(0) rotate(var(--r, 0deg));
+            }
+        }
+        .filter-vintage { filter: sepia(0.5) contrast(1.2) brightness(0.95); }
+        .filter-bw { filter: grayscale(1) contrast(1.2); }
+        .filter-warm { filter: sepia(0.2) saturate(1.4) hue-rotate(-10deg); }
+        .filter-cool { filter: saturate(1.1) hue-rotate(10deg) brightness(1.05); }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between bg-slate-50 text-slate-800">
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-white bg-opacity-95 z-50 flex flex-col justify-center items-center transition-opacity duration-500">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-emerald-500 mb-4"></div>
+        <p class="text-emerald-600 text-lg font-medium" id="loadingText">กำลังเชื่อมต่อระบบ...</p>
+    </div>
+
+    <!-- Custom Toast Notification -->
+    <div id="toast" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 transition-all duration-300 max-w-sm bg-white text-slate-800 border-l-4 border-emerald-500 p-4 rounded-xl shadow-2xl flex items-center space-x-3 pointer-events-none border border-slate-100">
+        <div class="bg-emerald-100 text-emerald-600 rounded-full p-1.5" id="toastIcon">
+            <i class="fas fa-check text-sm"></i>
+        </div>
+        <div>
+            <p class="font-bold text-sm text-slate-800" id="toastTitle">สำเร็จ</p>
+            <p class="text-xs text-slate-500" id="toastDesc">ทำรายการเรียบร้อยแล้ว</p>
+        </div>
+    </div>
+
+    <!-- Navigation / Header -->
+    <header class="bg-white/90 backdrop-blur border-b border-slate-200/80 px-6 py-4 flex justify-between items-center z-10 shadow-sm">
+        <div class="flex items-center space-x-3">
+            <div class="bg-gradient-to-tr from-emerald-500 to-teal-400 p-2 rounded-xl text-white shadow-md shadow-emerald-500/10">
+                <i class="fas fa-images text-xl"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-lg md:text-xl bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">Live Photo Wall</h1>
+                <p class="text-xs text-slate-500">ส่งรูปภาพขึ้นจอใหญ่สดๆ เรียลไทม์</p>
+            </div>
+        </div>
+        <div class="flex items-center space-x-2">
+            <button id="btnGotoWall" onclick="switchView('wall')" class="px-4 py-2 text-xs md:text-sm bg-slate-100 hover:bg-slate-200 font-medium rounded-lg border border-slate-200 text-slate-700 transition">
+                <i class="fas fa-desktop mr-2 text-emerald-600"></i>ดูหน้าจอรวม
+            </button>
+            <button id="btnGotoUpload" onclick="switchView('uploader')" class="px-4 py-2 text-xs md:text-sm bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-lg shadow-lg shadow-emerald-500/20 transition">
+                <i class="fas fa-paper-plane mr-2"></i>ส่งรูปภาพ
+            </button>
+        </div>
+    </header>
+
+    <main class="flex-grow flex flex-col relative">
+        
+        <!-- SECTION 1: Welcome/Dashboard Selector -->
+        <div id="viewWelcome" class="hidden flex-grow flex flex-col justify-center items-center p-6 text-center max-w-2xl mx-auto my-auto">
+            <h2 class="text-3xl md:text-4xl font-extrabold mb-4 bg-gradient-to-r from-slate-800 via-slate-700 to-slate-950 bg-clip-text text-transparent">
+                ยินดีต้อนรับสู่กระดานรูปภาพเรียลไทม์!
+            </h2>
+            <p class="text-slate-500 mb-8 max-w-md">
+                ระบบแชร์ภาพสดในงานปาร์ตี้ งานแต่งงาน งานสัมมนา หรือกิจกรรมพิเศษ ให้ทุกคนมีส่วนร่วมส่งภาพและข้อความประทับใจขึ้นหน้าจอใหญ่พร้อมกัน
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+                <div onclick="switchView('wall')" class="bg-white hover:bg-slate-50 border border-slate-200 hover:border-emerald-500/40 p-6 rounded-2xl cursor-pointer transition text-left group shadow-sm hover:shadow-md">
+                    <div class="bg-emerald-50 text-emerald-600 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition shadow-inner">
+                        <i class="fas fa-tv text-xl"></i>
+                    </div>
+                    <h3 class="text-lg font-bold mb-2 text-slate-800 group-hover:text-emerald-600 transition">เปิดหน้าจอรวมสำหรับขึ้นโปรเจกเตอร์</h3>
+                    <p class="text-sm text-slate-500">หน้าจอนี้จะคอยอัปเดตรูปภาพเรียลไทม์ พร้อมแสดง QR Code ให้คนในงานสแกน</p>
+                </div>
+                <div onclick="switchView('uploader')" class="bg-white hover:bg-slate-50 border border-slate-200 hover:border-teal-500/40 p-6 rounded-2xl cursor-pointer transition text-left group shadow-sm hover:shadow-md">
+                    <div class="bg-teal-50 text-teal-600 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition shadow-inner">
+                        <i class="fas fa-camera text-xl"></i>
+                    </div>
+                    <h3 class="text-lg font-bold mb-2 text-slate-800 group-hover:text-teal-600 transition">หน้าจอผู้ส่งรูปภาพ (มือถือ)</h3>
+                    <p class="text-sm text-slate-500">สำหรับส่งรูป ถ่ายภาพ หรือแชร์ความรู้สึก เพื่อส่งขึ้นหน้าจอใหญ่อัตโนมัติ</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION 2: View - Live Photo Wall Display Screen -->
+        <div id="viewWall" class="hidden flex-grow flex flex-col lg:flex-row h-full">
+            <!-- Left Panel: Polaroid Wall -->
+            <div class="flex-grow p-4 md:p-8 flex flex-col">
+                <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+                    <div>
+                        <h2 class="text-xl md:text-2xl font-bold flex items-center space-x-2 text-slate-800">
+                            <span class="relative flex h-3 w-3 mr-1">
+                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                            </span>
+                            <span>Live Guest Book Board</span>
+                        </h2>
+                        <p class="text-xs md:text-sm text-slate-500 mt-1">ภาพล่าสุดที่อัปโหลดโดยทุกคนในงาน</p>
+                    </div>
+                    
+                    <!-- Wall Controls & Google Drive Settings integration -->
+                    <div class="flex flex-wrap items-center gap-2 bg-white p-1.5 rounded-lg border border-slate-200 text-xs shadow-sm self-start sm:self-auto">
+                        <button onclick="openGasSettings()" class="px-3 py-1 rounded-md text-slate-600 hover:bg-slate-100 transition flex items-center space-x-1">
+                            <i class="fab fa-google-drive text-emerald-600"></i>
+                            <span id="gdriveStatusText" class="font-medium">ตั้งค่า Google Drive</span>
+                        </button>
+                        <span class="text-slate-300">|</span>
+                        <button onclick="toggleModeration()" id="btnModMode" class="px-3 py-1 rounded-md text-slate-600 hover:bg-slate-100 transition flex items-center space-x-1">
+                            <i class="fas fa-shield-halved text-amber-500"></i>
+                            <span id="modStatusText" class="font-medium">โหมดผู้ดูแล (ปิด)</span>
+                        </button>
+                        <span class="text-slate-300">|</span>
+                        <button onclick="confirmClearWall()" class="px-3 py-1 rounded-md text-rose-500 hover:bg-rose-50 transition flex items-center space-x-1 font-medium">
+                            <i class="fas fa-trash-can"></i>
+                            <span>ล้างกระดาน</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Live Photo Grid Wall (Scrollable / Flex Grid) -->
+                <div id="photoWallGrid" class="flex-grow grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 gap-6 overflow-y-auto max-h-[75vh] p-4 bg-slate-100/50 rounded-3xl border border-slate-200/80 min-h-[400px]">
+                    <!-- Polaroid Cards will be loaded here dynamically -->
+                </div>
+            </div>
+
+            <!-- Right Panel: Side Instructions & QR Code -->
+            <div class="w-full lg:w-80 bg-white border-t lg:border-t-0 lg:border-l border-slate-200 p-6 flex flex-col justify-between items-center text-center space-y-6">
+                <div class="w-full">
+                    <h3 class="text-lg font-bold text-emerald-600 mb-2">สแกนเพื่อส่งรูปภาพของคุณ!</h3>
+                    <p class="text-xs text-slate-500 mb-4 leading-relaxed">เปิดกล้องมือถือสแกนคิวอาร์โค้ดด้านล่างนี้เพื่อเปิดหน้าส่งรูปเข้าสู่จอนี้ได้ทันทีโดยไม่ต้องโหลดแอป</p>
+                    
+                    <!-- QR Code Canvas Container -->
+                    <div class="bg-white p-4 rounded-2xl inline-block border border-slate-100 shadow-xl mb-4 transform hover:scale-105 transition duration-300">
+                        <div id="qrcode" class="w-[180px] h-[180px]"></div>
+                    </div>
+
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80 text-xs text-slate-500 flex flex-col items-center space-y-1">
+                        <span class="font-medium text-slate-600">เข้าใช้งานผ่าน Link:</span>
+                        <input id="shareLinkUrl" type="text" readonly onclick="this.select(); copyShareLink()" class="w-full text-center bg-white border border-slate-200 p-1.5 rounded text-xs select-all cursor-pointer text-emerald-600 font-mono overflow-ellipsis">
+                        <button onclick="copyShareLink()" class="mt-1 text-emerald-600 hover:text-emerald-500 flex items-center space-x-1 text-[10px] uppercase font-bold tracking-wider">
+                            <i class="fas fa-copy"></i> <span>คัดลอกลิงก์</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Live stats and status -->
+                <div class="w-full bg-slate-50 p-4 rounded-xl border border-slate-200/80 text-left">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xs text-slate-500">รูปภาพบนจอทั้งหมด:</span>
+                        <span id="photoCount" class="text-lg font-bold text-emerald-600">0 รูป</span>
+                    </div>
+                    <div class="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                        <div class="bg-emerald-500 h-full w-full opacity-30 animate-pulse"></div>
+                    </div>
+                    <p class="text-[10px] text-slate-400 mt-2 text-center italic">ระบบจะอัปเดตแบบไร้สายอัตโนมัติ 🚀</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION 3: View - Mobile Uploader Screen -->
+        <div id="viewUploader" class="hidden flex-grow flex justify-center items-center p-4">
+            <div class="w-full max-w-md bg-white rounded-3xl border border-slate-200 p-6 shadow-2xl relative">
+                
+                <!-- Uploader Header -->
+                <div class="text-center mb-6">
+                    <span class="text-[10px] uppercase tracking-widest bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-full font-bold border border-emerald-200/60">UPLOADER</span>
+                    <h2 class="text-2xl font-bold mt-2 text-slate-800">แชร์ภาพของคุณขึ้นจอใหญ่</h2>
+                    <p class="text-xs text-slate-500 mt-1">เลือกรูปภาพของคุณ ใส่ชื่อและคำอธิบาย แล้วกดส่งได้เลย</p>
+                </div>
+
+                <!-- Input File selector / Custom Drag Area -->
+                <div class="space-y-4">
+                    <!-- Image Selection Box -->
+                    <div id="imageSelectArea" class="border-2 border-dashed border-slate-300 hover:border-emerald-400 rounded-2xl p-6 text-center cursor-pointer transition relative group bg-slate-50">
+                        <input type="file" id="photoInput" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer" onchange="handleFileSelect(event)">
+                        
+                        <!-- Static State (No image selected) -->
+                        <div id="uploadPlaceholder" class="space-y-3">
+                            <div class="mx-auto w-12 h-12 bg-white border border-slate-200 rounded-full flex items-center justify-center text-slate-400 group-hover:text-emerald-500 group-hover:border-emerald-200 transition shadow-sm">
+                                <i class="fas fa-camera text-xl"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm font-semibold text-slate-700">แตะเพื่อถ่ายรูป หรือเลือกรูปภาพ</p>
+                                <p class="text-xs text-slate-400 mt-1">รองรับไฟล์ JPG, PNG (จะถูกย่อขนาดเพื่อส่งไวขึ้น)</p>
+                            </div>
+                        </div>
+
+                        <!-- Image Preview State -->
+                        <div id="uploadPreviewContainer" class="hidden space-y-4">
+                            <div class="relative inline-block mx-auto rounded-lg overflow-hidden border border-slate-200 shadow-lg max-h-56">
+                                <img id="imagePreview" src="" alt="Preview" class="max-h-52 object-contain mx-auto">
+                                <button type="button" onclick="resetFileSelection(event)" class="absolute top-2 right-2 bg-rose-500 text-white p-2 rounded-full shadow hover:bg-rose-600 transition w-8 h-8 flex items-center justify-center">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                            <p class="text-xs text-emerald-600"><i class="fas fa-circle-check mr-1"></i> เตรียมอัปโหลดเรียบร้อย</p>
+                        </div>
+                    </div>
+
+                    <!-- Photo Filter Selector -->
+                    <div id="filterSelection" class="hidden space-y-2">
+                        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider">เลือกฟิลเตอร์ตกแต่งภาพ</label>
+                        <div class="grid grid-cols-5 gap-1.5 text-center">
+                            <button onclick="applyFilter('none', event)" class="filter-btn text-[10px] py-1.5 rounded-lg bg-slate-100 border border-emerald-500/80 text-emerald-600 font-bold transition">ธรรมดา</button>
+                            <button onclick="applyFilter('vintage', event)" class="filter-btn text-[10px] py-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 transition">วินเทจ</button>
+                            <button onclick="applyFilter('bw', event)" class="filter-btn text-[10px] py-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 transition">ขาวดำ</button>
+                            <button onclick="applyFilter('warm', event)" class="filter-btn text-[10px] py-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 transition">อบอุ่น</button>
+                            <button onclick="applyFilter('cool', event)" class="filter-btn text-[10px] py-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 transition">เย็นตา</button>
+                        </div>
+                    </div>
+
+                    <!-- Input Fields -->
+                    <div class="space-y-3">
+                        <div>
+                            <label for="senderName" class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">ชื่อผู้ส่ง (หรือระบุ นามแฝง)</label>
+                            <div class="relative">
+                                <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400"><i class="fas fa-user text-xs"></i></span>
+                                <input type="text" id="senderName" placeholder="เช่น เพื่อนเจ้าบ่าว / น้องเอมี่" class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-9 pr-4 text-sm focus:outline-none focus:border-emerald-500 focus:bg-white transition text-slate-800">
+                            </div>
+                        </div>
+                        <div>
+                            <label for="caption" class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">อธิบายภาพ</label>
+                            <div class="relative">
+                                <span class="absolute top-3 left-0 flex items-center pl-3 text-slate-400"><i class="fas fa-comment-dots text-xs"></i></span>
+                                <textarea id="caption" rows="2" placeholder="เขียนอธิบายรูปภาพของคุณ หรือเล่าเรื่องราวสั้นๆ..." class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 pl-9 pr-4 text-sm focus:outline-none focus:border-emerald-500 focus:bg-white transition text-slate-800 resize-none"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <button id="btnSubmitPhoto" onclick="uploadPhoto()" disabled class="w-full bg-emerald-500 disabled:bg-slate-100 hover:bg-emerald-600 text-white disabled:text-slate-400 font-bold py-3 px-4 rounded-xl transition duration-300 shadow-lg shadow-emerald-500/10 disabled:shadow-none flex items-center justify-center space-x-2">
+                        <i class="fas fa-paper-plane"></i>
+                        <span>ส่งขึ้นจอสดๆ เลย!</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Custom Modal for Alerts/Confirmations -->
+    <div id="customModal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 hidden flex justify-center items-center p-4">
+        <div class="w-full max-w-sm bg-white border border-slate-100 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div class="text-center">
+                <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-amber-50 text-amber-500 mb-3" id="modalIconContainer">
+                    <i class="fas fa-triangle-exclamation text-xl" id="modalIcon"></i>
+                </div>
+                <h3 class="text-lg font-bold text-slate-800" id="modalTitle">ต้องการลบรูปนี้ใช่ไหม?</h3>
+                <p class="text-sm text-slate-500 mt-2" id="modalText">หากยืนยัน รูปภาพจะถูกถอนออกจากหน้าจอใหญ่อื่นๆ ทันที</p>
+            </div>
+            <div class="flex space-x-2">
+                <button id="btnModalCancel" onclick="closeModal()" class="flex-1 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm transition">ยกเลิก</button>
+                <button id="btnModalConfirm" class="flex-1 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-medium text-sm transition">ยืนยัน</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Google Apps Script Settings Modal -->
+    <div id="gasSettingsModal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 hidden flex justify-center items-center p-4">
+        <div class="w-full max-w-md bg-white border border-slate-100 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <i class="fab fa-google-drive text-emerald-600"></i>
+                    <span>ตั้งค่าส่งรูปไป Google Drive</span>
+                </h3>
+                <button onclick="closeGasSettings()" class="text-slate-400 hover:text-slate-600">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="space-y-3">
+                <p class="text-xs text-slate-500 leading-relaxed">
+                    เมื่อคุณตั้งค่าเว็บแอป (Google Apps Script Web App) ระบบจะส่งรูปภาพเข้าไปเก็บไว้ที่โฟลเดอร์ Google Drive ของคุณโดยตรง และทำให้ฐานข้อมูลหน้าเว็บอัปเดตอย่างคล่องตัว
+                </p>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Google Apps Script Web App URL</label>
+                    <input type="text" id="gasUrlInput" placeholder="https://script.google.com/macros/s/.../exec" class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:border-emerald-500 focus:bg-white transition text-slate-800">
+                </div>
+                <div class="bg-amber-50 p-3 rounded-xl border border-amber-200 text-amber-700 text-[11px] space-y-1">
+                    <p class="font-bold"><i class="fas fa-circle-info mr-1"></i> คำเตือนและวิธีการติดตั้ง:</p>
+                    <ul class="list-disc list-inside space-y-0.5">
+                        <li>นำ Script ไปรันใน Google Drive แล้วดีพลอยเป็น <b>Web App</b></li>
+                        <li>เลือก Execute as: <b>"Me"</b> และ Who has access: <b>"Anyone"</b></li>
+                        <li>วางลิงก์ที่ลงท้ายด้วย <b>/exec</b> ลงในช่องด้านบนนี้</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="flex space-x-2 pt-2 border-t border-slate-100">
+                <button onclick="closeGasSettings()" class="flex-1 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm transition">ปิด</button>
+                <button onclick="saveGasSettings()" class="flex-1 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-medium text-sm transition">บันทึกการตั้งค่า</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer of the web application -->
+    <footer class="bg-white text-slate-400 text-center py-4 text-xs border-t border-slate-100">
+        <p>© 2026 Live Guest Book Screen App • พัฒนาโดยใช้ Firebase Real-time Tech & Google Drive Sync</p>
+    </footer>
+
+    <!-- Firebase modules script -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global States
+        let app, db, auth;
+        let userId = null;
+        let isModerationMode = false;
+        let currentCompressedBase64 = null;
+        let currentFilter = 'none';
+        let isUploading = false;
+        let photoListCache = [];
+        let gasUrl = ''; // Google Apps Script URL from firestore/local
+
+        // Application Config from environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'live-photo-wall-default';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "dummy-api-key",
+            authDomain: "dummy-auth-domain",
+            projectId: "dummy-project-id",
+            storageBucket: "dummy-storage-bucket",
+            messagingSenderId: "dummy-sender-id",
+            appId: "dummy-app-id"
+        };
+        const customAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        async function initFirebase() {
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                // Auth Before Queries
+                if (customAuthToken) {
+                    await signInWithCustomToken(auth, customAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        hideLoading();
+                        startListeningPhotos();
+                        listenToSettings(); // Listen to Google Drive Configuration Web App URL
+                    } else {
+                        showLoading("กำลังเข้าสู่ระบบรักษาความปลอดภัย...");
+                    }
+                });
+
+            } catch (error) {
+                console.error("Firebase Initialization Error: ", error);
+                showLoading(`เกิดข้อผิดพลาดในการเชื่อมต่อระบบฐานข้อมูล: ${error.message}`);
+            }
+        }
+
+        // Listen for Global App Configuration from Firestore (So users and screen sync GAS Url)
+        function listenToSettings() {
+            const configDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'settings');
+            onSnapshot(configDocRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    if (data.gasUrl) {
+                        gasUrl = data.gasUrl;
+                        document.getElementById('gasUrlInput').value = gasUrl;
+                        updateGDriveStatusBadge(true);
+                    }
+                } else {
+                    updateGDriveStatusBadge(false);
+                }
+            }, (error) => {
+                console.warn("Could not load cloud settings, fallback to local storage:", error);
+                // Fallback to localstorage if any rule error occurs
+                gasUrl = localStorage.getItem(`gasUrl_${appId}`) || '';
+                document.getElementById('gasUrlInput').value = gasUrl;
+                updateGDriveStatusBadge(!!gasUrl);
+            });
+        }
+
+        function updateGDriveStatusBadge(isActive) {
+            const badge = document.getElementById('gdriveStatusText');
+            if (badge) {
+                if (isActive) {
+                    badge.innerHTML = 'Google Drive <span class="bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded text-[10px] ml-1 font-bold">เชื่อมต่ออยู่</span>';
+                } else {
+                    badge.innerHTML = 'ตั้งค่า Google Drive <span class="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-[10px] ml-1 font-bold">ไม่ได้เปิด</span>';
+                }
+            }
+        }
+
+        // Save GAS Settings to Cloud Firestore
+        window.saveGasSettings = async function() {
+            const val = document.getElementById('gasUrlInput').value.trim();
+            showLoading("กำลังบันทึกข้อมูลตั้งค่า...");
+            
+            try {
+                // Save both to LocalStorage and Firebase config
+                localStorage.setItem(`gasUrl_${appId}`, val);
+                gasUrl = val;
+
+                const configDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'settings');
+                await setDoc(configDocRef, {
+                    gasUrl: val,
+                    updatedAt: Date.now()
+                }, { merge: true });
+
+                showToast("ตั้งค่าเรียบร้อย ✨", "ระบบ Google Drive เปิดใช้งานเรียบร้อยแล้ว ทุกคนสามารถส่งไฟล์เข้า Drive ได้แล้ว!");
+                closeGasSettings();
+            } catch (err) {
+                console.error("Save config error", err);
+                // Even if firebase write fails, let it keep in local memory
+                showToast("ข้อมูลเซฟในอุปกรณ์นี้", "เซฟพารามิเตอร์ไว้บนอุปกรณ์นี้เรียบร้อย (Firebase Write Restricted)", false);
+                closeGasSettings();
+            } finally {
+                hideLoading();
+            }
+        };
+
+        // Modal triggers
+        window.openGasSettings = function() {
+            document.getElementById('gasSettingsModal').classList.remove('hidden');
+            document.getElementById('gasSettingsModal').classList.add('flex');
+        };
+
+        window.closeGasSettings = function() {
+            document.getElementById('gasSettingsModal').classList.add('hidden');
+            document.getElementById('gasSettingsModal').classList.remove('flex');
+        };
+
+        // Listening to Firestore Data Real-time
+        function startListeningPhotos() {
+            // Strict Paths
+            const collectionPath = collection(db, 'artifacts', appId, 'public', 'data', 'photos');
+            
+            // No Complex Queries (no orderBy, instead filter/sort in Memory)
+            onSnapshot(collectionPath, (snapshot) => {
+                const photos = [];
+                snapshot.forEach((doc) => {
+                    photos.push({ id: doc.id, ...doc.data() });
+                });
+
+                // Sort photos in memory by timestamp (newest first)
+                photos.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+                
+                // Play feedback audio/effects if a new photo has arrived
+                if (photoListCache.length > 0 && photos.length > photoListCache.length) {
+                    playIncomingSound();
+                    triggerNewPhotoConfetti();
+                }
+
+                photoListCache = photos;
+                renderPhotos(photos);
+            }, (error) => {
+                console.error("Firestore Error: ", error);
+                showToast("แจ้งเตือน", "ไม่สามารถดึงข้อมูลแบบสดได้ มีปัญหากับสิทธิ์การใช้งาน", true);
+            });
+        }
+
+        // Sound player to alert on new picture
+        function playIncomingSound() {
+            try {
+                const context = new (window.AudioContext || window.webkitAudioContext)();
+                
+                // Beep sequence
+                const osc = context.createOscillator();
+                const gain = context.createGain();
+                
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(523.25, context.currentTime); // C5
+                osc.frequency.setValueAtTime(659.25, context.currentTime + 0.1); // E5
+                osc.frequency.setValueAtTime(783.99, context.currentTime + 0.2); // G5
+                
+                gain.gain.setValueAtTime(0, context.currentTime);
+                gain.gain.linearRampToValueAtTime(0.1, context.currentTime + 0.05);
+                gain.gain.linearRampToValueAtTime(0, context.currentTime + 0.35);
+                
+                osc.connect(gain);
+                gain.connect(context.destination);
+                
+                osc.start();
+                osc.stop(context.currentTime + 0.4);
+            } catch (e) {
+                console.log("Audio feedback couldn't play: ", e);
+            }
+        }
+
+        // Render photos into HTML Polaroid wall
+        function renderPhotos(photos) {
+            const grid = document.getElementById('photoWallGrid');
+            const photoCountElement = document.getElementById('photoCount');
+            
+            if (!grid) return;
+            grid.innerHTML = '';
+            
+            if (photoCountElement) {
+                photoCountElement.textContent = `${photos.length} รูป`;
+            }
+
+            if (photos.length === 0) {
+                grid.innerHTML = `
+                    <div class="col-span-full flex flex-col items-center justify-center p-12 text-center text-slate-400 space-y-3">
+                        <i class="fas fa-image text-4xl opacity-55"></i>
+                        <p class="text-sm font-medium text-slate-600">ยังไม่มีภาพบนหน้าจอเลยในขณะนี้</p>
+                        <p class="text-xs text-slate-400">สแกน QR Code แล้วประเดิมส่งรูปคนแรกเลย!</p>
+                    </div>
+                `;
+                return;
+            }
+
+            photos.forEach((p, idx) => {
+                const card = document.createElement('div');
+                // Create a random rotation for realistic polaroid effect
+                const rot = (Math.sin(idx * 45) * 4).toFixed(1);
+                card.style.setProperty('--r', `${rot}deg`);
+                card.className = "polaroid-card bg-white text-slate-800 p-3.5 rounded-lg shadow-lg flex flex-col justify-between hover:scale-105 hover:-translate-y-2 hover:shadow-xl transition-all duration-300 transform cursor-pointer relative border border-slate-100";
+                
+                // Format Timestamp
+                let timeStr = "";
+                if (p.timestamp) {
+                    const d = new Date(p.timestamp);
+                    timeStr = d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+                }
+
+                // Setup deletion overlay inside the render if modMode is on
+                const deleteButton = isModerationMode 
+                    ? `<button onclick="confirmDeletePhoto(event, '${p.id}')" class="absolute top-2 right-2 z-10 bg-rose-500 text-white p-2 rounded-full hover:bg-rose-600 shadow-md flex items-center justify-center w-8 h-8 transition-colors"><i class="fas fa-trash text-xs"></i></button>`
+                    : '';
+
+                // Apply dynamic filter classes
+                let filterClass = "";
+                if (p.filter === 'vintage') filterClass = 'filter-vintage';
+                else if (p.filter === 'bw') filterClass = 'filter-bw';
+                else if (p.filter === 'warm') filterClass = 'filter-warm';
+                else if (p.filter === 'cool') filterClass = 'filter-cool';
+
+                card.innerHTML = `
+                    ${deleteButton}
+                    <div class="w-full bg-slate-50 aspect-square rounded overflow-hidden relative mb-3 border border-slate-100">
+                        <img src="${p.imageUrl}" class="w-full h-full object-cover ${filterClass}" alt="Guest Upload" onerror="this.src='https://placehold.co/480x480/f1f5f9/94a3b8?text=Image+Loading'">
+                    </div>
+                    <div class="flex flex-col justify-between h-auto">
+                        <p class="text-xs font-semibold text-slate-800 border-b border-dashed border-slate-200 pb-1.5 flex justify-between">
+                            <span class="truncate pr-2 text-slate-700"><i class="fas fa-user-circle mr-1 text-slate-400"></i>${escapeHtml(p.sender || 'เพื่อนผู้ใจดี')}</span>
+                            <span class="text-[9px] text-slate-400 flex-shrink-0 font-normal"><i class="far fa-clock mr-1"></i>${timeStr}</span>
+                        </p>
+                        <p class="text-xs text-slate-600 italic mt-1.5 leading-relaxed break-words line-clamp-2">${escapeHtml(p.caption || 'คำอธิบายภาพสั้นๆ 📸')}</p>
+                    </div>
+                `;
+                
+                grid.appendChild(card);
+            });
+        }
+
+        // Trigger Canvas-based Image Compression before saving to Firestore / GAS
+        window.handleFileSelect = function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            showLoading("กำลังวิเคราะห์และเตรียมรูปภาพ...");
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() {
+                    // Maximum dimensions for high quality but lightweight size
+                    const MAX_WIDTH = 540;
+                    const MAX_HEIGHT = 540;
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > height) {
+                        if (width > MAX_WIDTH) {
+                            height *= MAX_WIDTH / width;
+                            width = MAX_WIDTH;
+                        }
+                    } else {
+                        if (height > MAX_HEIGHT) {
+                            width *= MAX_HEIGHT / height;
+                            height = MAX_HEIGHT;
+                        }
+                    }
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    // Compress JPEG representation
+                    currentCompressedBase64 = canvas.toDataURL('image/jpeg', 0.82);
+
+                    // Update UI previews
+                    const imagePreview = document.getElementById('imagePreview');
+                    imagePreview.src = currentCompressedBase64;
+                    
+                    document.getElementById('uploadPlaceholder').classList.add('hidden');
+                    document.getElementById('uploadPreviewContainer').classList.remove('hidden');
+                    document.getElementById('filterSelection').classList.remove('hidden');
+                    document.getElementById('btnSubmitPhoto').removeAttribute('disabled');
+                    
+                    hideLoading();
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        // Reset File Field
+        window.resetFileSelection = function(e) {
+            if (e) e.stopPropagation();
+            document.getElementById('photoInput').value = '';
+            document.getElementById('imagePreview').src = '';
+            document.getElementById('uploadPlaceholder').classList.remove('hidden');
+            document.getElementById('uploadPreviewContainer').classList.add('hidden');
+            document.getElementById('filterSelection').classList.add('hidden');
+            document.getElementById('btnSubmitPhoto').setAttribute('disabled', 'true');
+            currentCompressedBase64 = null;
+        };
+
+        // Submit Photo Flow (Supports Google Drive Upload fallback)
+        window.uploadPhoto = async function() {
+            if (!currentCompressedBase64 || isUploading) return;
+            if (!userId) {
+                showToast("แจ้งเตือน", "กรุณารอสักครู่ กำลังทำการเชื่อมต่อข้อมูลความปลอดภัย...", true);
+                return;
+            }
+
+            const sender = document.getElementById('senderName').value.trim() || 'เพื่อนผู้ใจดี';
+            const caption = document.getElementById('caption').value.trim() || 'คำอธิบายภาพสั้นๆ 📸';
+
+            isUploading = true;
+            document.getElementById('btnSubmitPhoto').setAttribute('disabled', 'true');
+
+            let targetImageUrl = currentCompressedBase64; // Fallback to base64 directly in firestore if no GAS URL
+            
+            // Check if Google Apps Script integration is ready
+            if (gasUrl && gasUrl.startsWith('http')) {
+                showLoading("กำลังสำรองภาพเข้าโฟลเดอร์ Google Drive ของคุณ...");
+                try {
+                    // Send to Google Apps Script
+                    const response = await fetch(gasUrl, {
+                        method: 'POST',
+                        mode: 'cors',
+                        headers: {
+                            'Content-Type': 'text/plain', // GAS requires plain text or no custom headers to bypass certain preflight CORS limitations
+                        },
+                        body: JSON.stringify({
+                            image: currentCompressedBase64,
+                            sender: sender,
+                            caption: caption
+                        })
+                    });
+                    
+                    const resJson = await response.json();
+                    if (resJson && resJson.success) {
+                        targetImageUrl = resJson.imageUrl; // Direct link to GDrive file!
+                        showToast("สำรองสำเร็จ ✅", "บันทึกภาพลง Google Drive และกำลังนำขึ้นหน้าจอ...");
+                    } else {
+                        console.error("GAS failed, using direct base64 fallback:", resJson.error);
+                        showToast("อัปโหลดสำรอง", "ส่งภาพขึ้นเว็บแทนชั่วคราวเนื่องจาก Google Script ติดขัด", true);
+                    }
+                } catch (gasErr) {
+                    console.error("Failed Google Apps Script upload, fall back to base64 payload:", gasErr);
+                    showToast("เตรียมอัปโหลดแบบสำรอง", "กำลังสลับข้อมูลเพื่อความปลอดภัย...", false);
+                }
+            }
+
+            showLoading("กำลังส่งรูปภาพขึ้นหน้าจอหลัก...");
+
+            try {
+                // Strict Paths
+                const collectionPath = collection(db, 'artifacts', appId, 'public', 'data', 'photos');
+                await addDoc(collectionPath, {
+                    sender: sender,
+                    caption: caption,
+                    imageUrl: targetImageUrl, // Link either from GDrive or direct compressed Base64
+                    filter: currentFilter,
+                    timestamp: Date.now(),
+                    creatorId: userId
+                });
+
+                showToast("ส่งสำเร็จ 🎉", "รูปภาพของคุณถูกแสดงขึ้นหน้าจอหลักเรียบร้อย!");
+                resetFileSelection();
+                
+                // Clear fields
+                document.getElementById('senderName').value = '';
+                document.getElementById('caption').value = '';
+                
+                // Show celebration on client page as well
+                triggerNewPhotoConfetti();
+
+                // Auto switch back to wall check or success page
+                setTimeout(() => {
+                    if (isMobile()) {
+                        // Keep on upload, reset UI
+                    } else {
+                        switchView('wall');
+                    }
+                }, 1000);
+
+            } catch (err) {
+                console.error("Upload error:", err);
+                showToast("เกิดข้อผิดพลาด", "ไม่สามารถอัปโหลดรูปภาพได้ กรุณาลองใหม่อีกครั้ง", true);
+            } finally {
+                isUploading = false;
+                hideLoading();
+            }
+        };
+
+        window.applyFilter = function(filterName, event) {
+            currentFilter = filterName;
+            
+            const imagePreview = document.getElementById('imagePreview');
+            // Remove old filters
+            imagePreview.classList.remove('filter-vintage', 'filter-bw', 'filter-warm', 'filter-cool');
+            
+            if (filterName !== 'none') {
+                imagePreview.classList.add(`filter-${filterName}`);
+            }
+
+            // Update button styles
+            const buttons = document.querySelectorAll('.filter-btn');
+            buttons.forEach(btn => {
+                btn.classList.remove('border-emerald-500/80', 'text-emerald-600', 'font-bold');
+                btn.classList.add('border-slate-200', 'text-slate-500');
+            });
+
+            // Highlight chosen
+            event.target.classList.add('border-emerald-500/80', 'text-emerald-600', 'font-bold');
+            event.target.classList.remove('border-slate-200', 'text-slate-500');
+        };
+
+        // Toggle deletion button capability for moderation
+        window.toggleModeration = function() {
+            isModerationMode = !isModerationMode;
+            const btn = document.getElementById('btnModMode');
+            const txt = document.getElementById('modStatusText');
+            
+            if (isModerationMode) {
+                btn.classList.add('bg-amber-50', 'border-amber-300', 'text-amber-600');
+                txt.textContent = "โหมดดูแลความสะอาด (เปิด)";
+                showToast("แอดมิน", "เปิดโหมดนำภาพไม่เหมาะสมออกจากจอแล้ว");
+            } else {
+                btn.classList.remove('bg-amber-50', 'border-amber-300', 'text-amber-600');
+                txt.textContent = "โหมดดูแลความสะอาด (ปิด)";
+            }
+            renderPhotos(photoListCache);
+        };
+
+        // Confirm photo deletion
+        window.confirmDeletePhoto = function(e, docId) {
+            if (e) e.stopPropagation();
+            
+            const modal = document.getElementById('customModal');
+            const confirmBtn = document.getElementById('btnModalConfirm');
+            
+            document.getElementById('modalTitle').textContent = "ต้องการนำรูปนี้ออกจากจอ?";
+            document.getElementById('modalText').textContent = "เมื่อลบแล้วรูปนี้จะไม่ปรากฏบนโปรเจคเตอร์หลักของคุณ";
+            
+            // Re-bind confirm button action
+            confirmBtn.onclick = async () => {
+                closeModal();
+                showLoading("กำลังลบรูปภาพ...");
+                try {
+                    // Strict Paths
+                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'photos', docId);
+                    await deleteDoc(docRef);
+                    showToast("นำภาพออกแล้ว", "ภาพนี้ถูกนำออกจากหน้าจอสำเร็จ");
+                } catch (err) {
+                    console.error("Delete error:", err);
+                    showToast("เกิดข้อผิดพลาด", "ไม่สามารถลบภาพนี้ได้", true);
+                } finally {
+                    hideLoading();
+                }
+            };
+            
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        };
+
+        // Confirm entire wall clear
+        window.confirmClearWall = function() {
+            const modal = document.getElementById('customModal');
+            const confirmBtn = document.getElementById('btnModalConfirm');
+            
+            document.getElementById('modalTitle').textContent = "ล้างกระดานรูปภาพทั้งหมด?";
+            document.getElementById('modalText').textContent = "รูปทั้งหมดจะถูกลบแบบถาวรและไม่สามารถกู้คืนได้ กรุณาแน่ใจในการทำรายการ";
+            
+            confirmBtn.onclick = async () => {
+                closeModal();
+                showLoading("กำลังล้างข้อมูลกระดาน...");
+                try {
+                    // Fetch all photos and delete them loop by loop
+                    const collectionPath = collection(db, 'artifacts', appId, 'public', 'data', 'photos');
+                    const snapshot = await getDocs(collectionPath);
+                    const deletePromises = [];
+                    
+                    snapshot.forEach((d) => {
+                        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'photos', d.id);
+                        deletePromises.push(deleteDoc(docRef));
+                    });
+
+                    await Promise.all(deletePromises);
+                    showToast("ล้างข้อมูลสำเร็จ", "กระดานรูปภาพของคุณสะอาดเรียบร้อยแล้ว");
+                } catch (err) {
+                    console.error("Clear wall error:", err);
+                    showToast("เกิดข้อผิดพลาด", "ไม่สามารถล้างกระดานได้", true);
+                } finally {
+                    hideLoading();
+                }
+            };
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        };
+
+        window.closeModal = function() {
+            const modal = document.getElementById('customModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        };
+
+        // Switch between Views
+        window.switchView = function(viewName) {
+            document.getElementById('viewWelcome').classList.add('hidden');
+            document.getElementById('viewWall').classList.add('hidden');
+            document.getElementById('viewUploader').classList.add('hidden');
+
+            document.getElementById('btnGotoWall').classList.remove('bg-emerald-50', 'border-emerald-200', 'text-emerald-600');
+            document.getElementById('btnGotoUpload').classList.remove('bg-emerald-50', 'border-emerald-200', 'text-emerald-600');
+
+            if (viewName === 'wall') {
+                document.getElementById('viewWall').classList.remove('hidden');
+                document.getElementById('btnGotoWall').classList.add('bg-emerald-50', 'border-emerald-200', 'text-emerald-600');
+                generateQrCode();
+            } else if (viewName === 'uploader') {
+                document.getElementById('viewUploader').classList.remove('hidden');
+                document.getElementById('btnGotoUpload').classList.add('bg-emerald-50', 'border-emerald-200', 'text-emerald-600');
+            } else {
+                document.getElementById('viewWelcome').classList.remove('hidden');
+            }
+        };
+
+        // Helpers
+        function showLoading(text) {
+            document.getElementById('loadingText').textContent = text || "กำลังโหลด...";
+            document.getElementById('loadingOverlay').classList.remove('hidden');
+            document.getElementById('loadingOverlay').classList.add('flex');
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').classList.add('hidden');
+            document.getElementById('loadingOverlay').classList.remove('flex');
+        }
+
+        function showToast(title, desc, isError = false) {
+            const toast = document.getElementById('toast');
+            const icon = document.getElementById('toastIcon');
+            
+            document.getElementById('toastTitle').textContent = title;
+            document.getElementById('toastDesc').textContent = desc;
+
+            if (isError) {
+                toast.classList.remove('border-emerald-500');
+                toast.classList.add('border-rose-500');
+                icon.className = "bg-rose-50 text-rose-500 rounded-full p-1.5";
+                icon.innerHTML = '<i class="fas fa-triangle-exclamation text-xs"></i>';
+            } else {
+                toast.classList.remove('border-rose-500');
+                toast.classList.add('border-emerald-500');
+                icon.className = "bg-emerald-50 text-emerald-600 rounded-full p-1.5";
+                icon.innerHTML = '<i class="fas fa-check text-xs"></i>';
+            }
+
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        }
+
+        function isMobile() {
+            return window.innerWidth < 768;
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+        }
+
+        // Copy Shareable link to clipboard
+        window.copyShareLink = function() {
+            const shareLinkUrl = document.getElementById('shareLinkUrl');
+            shareLinkUrl.select();
+            
+            // Clipboard standard trick
+            try {
+                document.execCommand('copy');
+                showToast("คัดลอกสำเร็จ", "ลิงก์ถูกคัดลอกลงคลิปบอร์ดแล้ว พร้อมส่งต่อ!");
+            } catch (err) {
+                showToast("ข้อผิดพลาด", "ไม่สามารถคัดลอกอัตโนมัติได้", true);
+            }
+        };
+
+        // Confetti Fireworks effect
+        function triggerNewPhotoConfetti() {
+            confetti({
+                particleCount: 80,
+                spread: 70,
+                origin: { y: 0.6 }
+            });
+        }
+
+        // QR Code Generator pointing to Mobile Uploader
+        let qrCodeGenerated = false;
+        function generateQrCode() {
+            if (qrCodeGenerated) return;
+
+            // Generate link with target to Uploader Mode
+            const currentUrl = new URL(window.location.href);
+            currentUrl.searchParams.set('mode', 'upload');
+            const uploadUrl = currentUrl.toString();
+
+            document.getElementById('shareLinkUrl').value = uploadUrl;
+
+            const qrContainer = document.getElementById('qrcode');
+            qrContainer.innerHTML = ''; // Clean old
+
+            new QRCode(qrContainer, {
+                text: uploadUrl,
+                width: 180,
+                height: 180,
+                colorDark : "#0f172a",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.M
+            });
+
+            qrCodeGenerated = true;
+        }
+
+        // App Launcher
+        window.onload = function () {
+            // Check routing from URL Parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const viewMode = urlParams.get('mode');
+
+            if (viewMode === 'upload') {
+                switchView('uploader');
+            } else if (viewMode === 'display') {
+                switchView('wall');
+            } else {
+                switchView(''); // dashboard selection
+            }
+
+            initFirebase();
+        };
+
+    </script>
+</body>
+</html>
